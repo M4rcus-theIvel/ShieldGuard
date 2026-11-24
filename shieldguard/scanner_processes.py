@@ -1,0 +1,239 @@
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+import psutil
+
+from .models import Severity, ThreatCategory, ThreatFinding
+from .utils import _hidden_startupinfo
+
+KNOWN_MINER_NAMES: Set[str] = {
+    "xmrig.exe",
+    "xmrig-cuda.exe",
+    "phoenixminer.exe",
+    "lolminer.exe",
+    "gminer.exe",
+    "t-rex.exe",
+    "nbminer.exe",
+    "bzminer.exe",
+    "srbminer-multi.exe",
+    "rigel.exe",
+    "teamredminer.exe",
+    "ethminer.exe",
+    "ccminer.exe",
+    "cgminer.exe",
+    "bfgminer.exe",
+    "cpuminer.exe",
+    "nanominer.exe",
+    "onezerominer.exe",
+    "wildrig.exe",
+    "excavator.exe",
+    "minerd.exe",
+}
+
+MINING_POOL_PORTS: Set[int] = {
+    3333,
+    4444,
+    5555,
+    7777,
+    8881,
+    8888,
+    9999,
+    14433,
+    14444,
+    20536,
+    45700,
+}
+
+SUSPICIOUS_CMD_PATTERNS: List[Tuple[re.Pattern[str], str, Severity]] = [
+    (re.compile(r"stratum\+tcp://|stratum\+ssl://", re.I), "Kết nối giao thức đào coin Stratum", Severity.CRITICAL),
+    (re.compile(r"--donate-level|--algo\s+(rx/|kawpow|ethash|autolykos|randomx)", re.I), "Tham số dòng lệnh đặc trưng của phần mềm đào coin", Severity.CRITICAL),
+    (re.compile(r"\\windows\\systemhealth\\", re.I), "Chạy từ thư mục giả mạo C:\\Windows\\SystemHealth", Severity.CRITICAL),
+    (re.compile(r"sysmon\.py", re.I), "Chạy script giám sát ẩn SysMon.py (mẫu mã độc ẩn Task Manager)", Severity.CRITICAL),
+    (re.compile(r"conhost\.exe.*--headless", re.I), "Ẩn cửa sổ console bằng conhost --headless", Severity.HIGH),
+    (re.compile(r"powershell.*(-w\s+hidden|-windowstyle\s+hidden).*(iex|downloadstring|-enc|-encodedcommand)", re.I), "PowerShell chạy ẩn thực thi payload từ xa/mã hóa", Severity.CRITICAL),
+]
+
+SUSPICIOUS_PATH_REGEX = re.compile(
+    r"(^c:\\windows\\systemhealth\\|^c:\\windows\\temp\\|\\appdata\\local\\temp\\|\\users\\public\\)",
+    re.I,
+)
+
+# Legitimate processes that commonly live in AppData or use GPU/CPU heavily
+SAFE_PROCESS_HINTS = (
+    "antigravity.exe",
+    "code.exe",
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "discord.exe",
+    "opera.exe",
+    "vivaldi.exe",
+    "onedrive.exe",
+    "spotify.exe",
+    "riot client.exe",
+    "riotclientservices.exe",
+    "steam.exe",
+    "epicgameslauncher.exe",
+    "nvidia",
+    "explorer.exe",
+    "dwm.exe",
+    "svchost.exe",
+    "searchhost.exe",
+    "msedgewebview2.exe",
+)
+
+
+def query_nvidia_gpu_status() -> Dict[str, Any]:
+    """Query NVIDIA GPU usage and running GPU processes via nvidia-smi without triggering Task Manager evasion."""
+    result: Dict[str, Any] = {"available": False, "gpu_name": "", "util_pct": 0, "mem_used_mb": 0, "mem_total_mb": 0, "temp_c": 0, "processes": []}
+    try:
+        p = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            startupinfo=_hidden_startupinfo(),
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if p.returncode == 0 and p.stdout.strip():
+            parts = [x.strip() for x in p.stdout.strip().splitlines()[0].split(",")]
+            if len(parts) >= 5:
+                result["available"] = True
+                result["gpu_name"] = parts[0]
+                result["util_pct"] = int(float(parts[1])) if parts[1].replace(".", "", 1).isdigit() else 0
+                result["mem_used_mb"] = int(float(parts[2])) if parts[2].replace(".", "", 1).isdigit() else 0
+                result["mem_total_mb"] = int(float(parts[3])) if parts[3].replace(".", "", 1).isdigit() else 0
+                result["temp_c"] = int(float(parts[4])) if parts[4].replace(".", "", 1).isdigit() else 0
+
+        p2 = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            startupinfo=_hidden_startupinfo(),
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if p2.returncode == 0 and p2.stdout.strip():
+            for line in p2.stdout.strip().splitlines():
+                cols = [x.strip() for x in line.split(",")]
+                if len(cols) >= 3 and cols[0].isdigit():
+                    result["processes"].append(
+                        {
+                            "pid": int(cols[0]),
+                            "name": cols[1],
+                            "mem_mb": int(float(cols[2])) if cols[2].replace(".", "", 1).isdigit() else 0,
+                        }
+                    )
+    except Exception:
+        pass
+    return result
+
+
+def scan_processes() -> Tuple[List[ThreatFinding], Dict[str, Any]]:
+    """Scan all running processes for crypto-miners, stealth watchdogs, and suspicious network connections."""
+    findings: List[ThreatFinding] = []
+    seen_pids: Set[int] = set()
+    my_pid = os.getpid()
+
+    gpu_info = query_nvidia_gpu_status()
+    gpu_compute_pids: Dict[int, Dict[str, Any]] = {p["pid"]: p for p in gpu_info.get("processes", [])}
+
+    # Build connection map by PID
+    conn_by_pid: Dict[int, List[Tuple[str, int]]] = {}
+    try:
+        for c in psutil.net_connections(kind="tcp"):
+            if c.pid and c.raddr and c.status == psutil.CONN_ESTABLISHED:
+                conn_by_pid.setdefault(c.pid, []).append((c.raddr.ip, c.raddr.port))
+    except Exception:
+        pass
+
+    total_scanned = 0
+    for proc in psutil.process_iter(["pid", "ppid", "name", "exe", "cmdline", "username", "cpu_percent"]):
+        total_scanned += 1
+        try:
+            info = proc.info
+            pid = info["pid"]
+            if pid in (0, 4, my_pid):
+                continue
+
+            name = (info.get("name") or "").strip()
+            name_lower = name.lower()
+            exe = (info.get("exe") or "").strip()
+            cmdline_list = info.get("cmdline") or []
+            cmdline = " ".join(cmdline_list) if isinstance(cmdline_list, list) else str(cmdline_list)
+
+            reasons: List[str] = []
+            severity = Severity.INFO
+
+            # 1. Known miner executable name
+            if name_lower in KNOWN_MINER_NAMES or "xmrig" in name_lower or "miner" in name_lower:
+                if "antigravity" not in name_lower:
+                    reasons.append(f"Tên tiến trình trùng phần mềm đào coin ({name})")
+                    severity = Severity.CRITICAL
+
+            # 2. Suspicious command line patterns
+            for pat, desc, pat_sev in SUSPICIOUS_CMD_PATTERNS:
+                if pat.search(cmdline) or pat.search(exe):
+                    reasons.append(desc)
+                    if pat_sev.rank > severity.rank:
+                        severity = pat_sev
+
+            # 3. Running from suspicious directories (especially python/exe/cmd in C:\Windows\SystemHealth or Temp)
+            if exe and SUSPICIOUS_PATH_REGEX.search(exe):
+                if not any(h in name_lower for h in SAFE_PROCESS_HINTS):
+                    reasons.append(f"Chạy từ thư mục nguy hiểm: {exe}")
+                    if Severity.HIGH.rank > severity.rank:
+                        severity = Severity.HIGH
+
+            # 4. Active connection to common mining pool ports
+            remote_conns = conn_by_pid.get(pid, [])
+            for rip, rport in remote_conns:
+                if rport in MINING_POOL_PORTS and not rip.startswith(("127.", "10.", "192.168.")):
+                    reasons.append(f"Kết nối mạng tới cổng đào coin phổ biến ({rip}:{rport})")
+                    if Severity.CRITICAL.rank > severity.rank:
+                        severity = Severity.CRITICAL
+
+            # 5. GPU compute process that is not on safe list and lives in suspicious path
+            if pid in gpu_compute_pids and not any(h in name_lower for h in SAFE_PROCESS_HINTS):
+                gmem = gpu_compute_pids[pid]["mem_mb"]
+                if gmem >= 512 and (not exe or "program files" not in exe.lower()):
+                    reasons.append(f"Đang chiếm dụng GPU Compute ({gmem} MB VRAM) từ vị trí bất thường")
+                    if Severity.HIGH.rank > severity.rank:
+                        severity = Severity.HIGH
+
+            if reasons and pid not in seen_pids:
+                seen_pids.add(pid)
+                findings.append(
+                    ThreatFinding(
+                        title=f"Tiến trình nghi ngờ: {name} (PID {pid})",
+                        category=ThreatCategory.PROCESS,
+                        severity=severity,
+                        target=exe or name,
+                        reason="; ".join(reasons),
+                        details={
+                            "pid": pid,
+                            "ppid": info.get("ppid"),
+                            "name": name,
+                            "exe": exe,
+                            "cmdline": cmdline[:500],
+                            "connections": [f"{ip}:{pt}" for ip, pt in remote_conns[:5]],
+                        },
+                    )
+                )
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    findings.sort(key=lambda f: f.severity.rank, reverse=True)
+    meta = {
+        "total_processes": total_scanned,
+        "gpu": gpu_info,
+    }
+    return findings, meta

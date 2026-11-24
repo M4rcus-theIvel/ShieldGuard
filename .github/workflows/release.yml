@@ -1,0 +1,50 @@
+name: Build & Release ShieldGuard
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Run core verification tests
+        run: python tests/test_core.py
+
+      - name: Build ShieldGuard.exe (with UAC Admin manifest)
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --uac-admin --name ShieldGuard --collect-all customtkinter main.py
+
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Path dist/ShieldGuard.exe -Algorithm SHA256).Hash
+          "$hash  ShieldGuard.exe" | Out-File -FilePath dist/ShieldGuard.exe.sha256 -Encoding ascii
+          Write-Output "SHA256: $hash"
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/ShieldGuard.exe
+            dist/ShieldGuard.exe.sha256
