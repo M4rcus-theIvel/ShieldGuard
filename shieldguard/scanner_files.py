@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 import re
 import subprocess
 import threading
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import requests
 
 from .models import Severity, ThreatCategory, ThreatFinding
-from .utils import _hidden_startupinfo, compute_sha256
+from .utils import _hidden_startupinfo, compile_feed_regex, compute_sha256, load_threat_feed
 
 KNOWN_MALICIOUS_FILENAMES = {
     "xmrig.exe": ("Phần mềm đào coin XMRig", Severity.CRITICAL),
@@ -24,7 +25,7 @@ KNOWN_MALICIOUS_FILENAMES = {
     "rigel.exe": ("Phần mềm đào coin Rigel", Severity.CRITICAL),
 }
 
-SCRIPT_EXTS = {".ps1", ".py", ".bat", ".cmd", ".vbs", ".js", ".hta"}
+SCRIPT_EXTS = {".ps1", ".py", ".bat", ".cmd", ".vbs", ".vbe", ".js", ".jse", ".hta", ".wsf", ".wsh"}
 BINARY_EXTS = {".exe", ".dll", ".sys", ".scr"}
 
 SCRIPT_SIGNATURES: List[Tuple[re.Pattern[bytes], str, Severity]] = [
@@ -115,8 +116,93 @@ def check_virustotal_hash(sha256: str, api_key: str) -> Dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
+_FILE_FEED_CACHE: Tuple[Any, Dict[str, Any]] = (None, {})
+
+
+def _parse_severity(val: str, default: Severity = Severity.HIGH) -> Severity:
+    try:
+        return Severity(str(val).upper())
+    except ValueError:
+        return default
+
+
+def _norm_path_variants(raw_path: str | Path) -> Set[str]:
+    p_str = str(raw_path)
+    variants: Set[str] = {os.path.normcase(os.path.abspath(p_str))}
+    try:
+        variants.add(os.path.normcase(str(Path(p_str).resolve())))
+    except OSError:
+        pass
+    return variants
+
+
+def _get_file_feed_rules() -> Dict[str, Any]:
+    global _FILE_FEED_CACHE
+    feed = load_threat_feed()
+    env_key = (
+        os.environ.get("APPDATA", ""),
+        os.environ.get("TEMP", ""),
+        os.environ.get("LOCALAPPDATA", ""),
+    )
+    cache_key = (id(feed), env_key)
+    if _FILE_FEED_CACHE[0] == cache_key:
+        return _FILE_FEED_CACHE[1]
+
+    sha256_iocs: Dict[str, Tuple[str, Severity]] = {}
+    for h, info in (feed.get("sha256_iocs") or {}).items():
+        if isinstance(info, dict) and h:
+            sha256_iocs[str(h).lower()] = (
+                str(info.get("name") or "Known Malware"),
+                _parse_severity(str(info.get("severity", "CRITICAL")), Severity.CRITICAL),
+            )
+
+    filenames: Dict[str, Tuple[str, Severity]] = {}
+    for fname, entry in (feed.get("malicious_filenames") or {}).items():
+        if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+            filenames[str(fname).lower()] = (str(entry[0]), _parse_severity(str(entry[1]), Severity.CRITICAL))
+
+    malicious_paths: Dict[str, Tuple[str, Severity]] = {}
+    path_basenames: Set[str] = set()
+    for item in feed.get("malicious_file_paths") or []:
+        if not isinstance(item, dict) or not item.get("path"):
+            continue
+        expanded = os.path.expandvars(str(item["path"]))
+        reason = str(item.get("reason") or "Tệp nằm tại đường dẫn mã độc đã biết")
+        sev = _parse_severity(str(item.get("severity", "HIGH")), Severity.HIGH)
+        path_basenames.add(Path(expanded).name.lower())
+        for variant in _norm_path_variants(expanded):
+            malicious_paths[variant] = (reason, sev)
+
+    script_sigs: List[Tuple[re.Pattern[bytes], str, Severity]] = []
+    for item in feed.get("script_signatures") or []:
+        if not isinstance(item, dict):
+            continue
+        pat = compile_feed_regex(str(item.get("pattern", "")), re.I | re.S, as_bytes=True)
+        if pat:
+            script_sigs.append((pat, str(item.get("reason", "Mẫu script nguy hiểm")), _parse_severity(str(item.get("severity", "HIGH")))))
+
+    binary_sigs: List[Tuple[re.Pattern[bytes], str, Severity]] = []
+    for item in feed.get("binary_signatures") or []:
+        if not isinstance(item, dict):
+            continue
+        pat = compile_feed_regex(str(item.get("pattern", "")), re.I | re.S, as_bytes=True)
+        if pat:
+            binary_sigs.append((pat, str(item.get("reason", "Mẫu tệp nhị phân nguy hiểm")), _parse_severity(str(item.get("severity", "HIGH")))))
+
+    parsed = {
+        "sha256_iocs": sha256_iocs,
+        "filenames": filenames,
+        "malicious_paths": malicious_paths,
+        "path_basenames": path_basenames,
+        "script_sigs": script_sigs,
+        "binary_sigs": binary_sigs,
+    }
+    _FILE_FEED_CACHE = (cache_key, parsed)
+    return parsed
+
+
 def analyze_single_file(file_path: Path) -> Optional[ThreatFinding]:
-    """Run static heuristic checks on a single file."""
+    """Run static heuristic and threat-feed checks on a single file."""
     try:
         if not file_path.is_file():
             return None
@@ -124,19 +210,32 @@ def analyze_single_file(file_path: Path) -> Optional[ThreatFinding]:
         if size == 0 or size > 80 * 1024 * 1024:
             return None
 
+        rules = _get_file_feed_rules()
         name_lower = file_path.name.lower()
         ext = file_path.suffix.lower()
         reasons: List[str] = []
         severity = Severity.INFO
 
+        # 0. Known malicious file path
+        for variant in _norm_path_variants(file_path):
+            if variant in rules["malicious_paths"]:
+                p_desc, p_sev = rules["malicious_paths"][variant]
+                reasons.append(p_desc)
+                if p_sev.rank > severity.rank:
+                    severity = p_sev
+                break
+
         # 1. Known malicious filename
-        if name_lower in KNOWN_MALICIOUS_FILENAMES:
-            desc, sev = KNOWN_MALICIOUS_FILENAMES[name_lower]
-            reasons.append(desc)
-            if sev.rank > severity.rank:
-                severity = sev
+        for fname_map in (KNOWN_MALICIOUS_FILENAMES, rules["filenames"]):
+            if name_lower in fname_map:
+                desc, sev = fname_map[name_lower]
+                if desc not in reasons:
+                    reasons.append(desc)
+                if sev.rank > severity.rank:
+                    severity = sev
 
         # 2. Content heuristics for scripts & binaries (read up to 4 MB)
+        sample = b""
         if ext in SCRIPT_EXTS or ext in BINARY_EXTS:
             try:
                 with file_path.open("rb") as f:
@@ -145,17 +244,36 @@ def analyze_single_file(file_path: Path) -> Optional[ThreatFinding]:
                 sample = b""
 
             if sample:
-                sigs = SCRIPT_SIGNATURES if ext in SCRIPT_EXTS else BINARY_SIGNATURES
+                sigs = (
+                    SCRIPT_SIGNATURES + rules["script_sigs"]
+                    if ext in SCRIPT_EXTS
+                    else BINARY_SIGNATURES + rules["binary_sigs"]
+                )
                 for pat, desc, sev in sigs:
                     if pat.search(sample):
-                        reasons.append(desc)
+                        if desc not in reasons:
+                            reasons.append(desc)
                         if sev.rank > severity.rank:
                             severity = sev
+
+        # 3. SHA-256 IOC lookup (reusing 4 MB in-memory sample when possible)
+        precomputed_sha = ""
+        sha_iocs = rules["sha256_iocs"]
+        if sha_iocs:
+            if sample and size <= 4 * 1024 * 1024 and len(sample) == size:
+                precomputed_sha = hashlib.sha256(sample).hexdigest()
+            elif size <= 16 * 1024 * 1024 and (ext in SCRIPT_EXTS or ext in BINARY_EXTS):
+                precomputed_sha = compute_sha256(file_path, max_bytes=16 * 1024 * 1024)
+            if precomputed_sha and precomputed_sha.lower() in sha_iocs:
+                ioc_name, ioc_sev = sha_iocs[precomputed_sha.lower()]
+                reasons.append(f"Khớp mã băm SHA-256 mã độc đã biết: {ioc_name}")
+                if ioc_sev.rank > severity.rank:
+                    severity = ioc_sev
 
         if not reasons:
             return None
 
-        sha = compute_sha256(file_path)
+        sha = precomputed_sha or compute_sha256(file_path)
         return ThreatFinding(
             title=f"Suspicious File: {file_path.name}",
             category=ThreatCategory.FILE,
@@ -180,6 +298,7 @@ def scan_path_heuristics(
     path = Path(target)
     findings: List[ThreatFinding] = []
     scanned = 0
+    rules = _get_file_feed_rules()
 
     if path.is_file():
         scanned = 1
@@ -205,7 +324,14 @@ def scan_path_heuristics(
                 return findings, scanned
             fpath = Path(root) / fname
             ext = fpath.suffix.lower()
-            if ext not in SCRIPT_EXTS and ext not in BINARY_EXTS and fname.lower() not in KNOWN_MALICIOUS_FILENAMES:
+            fname_lower = fname.lower()
+            if (
+                ext not in SCRIPT_EXTS
+                and ext not in BINARY_EXTS
+                and fname_lower not in KNOWN_MALICIOUS_FILENAMES
+                and fname_lower not in rules["filenames"]
+                and fname_lower not in rules["path_basenames"]
+            ):
                 continue
             scanned += 1
             if progress_cb and (scanned % 10 == 0 or scanned == 1):
@@ -222,22 +348,44 @@ def quick_scan_hotspot_folders(
     progress_cb: Optional[Callable[[int, str], None]] = None,
     cancel_event: Optional[threading.Event] = None,
 ) -> Tuple[List[ThreatFinding], int]:
-    """Scan common malware drop hotspots (SystemHealth, Temp, Desktop, Startup, Downloads)."""
+    """Scan common malware drop hotspots (SystemHealth, Temp, Desktop, Downloads, AppData)."""
     hotspots = [
         Path(r"C:\Windows\SystemHealth"),
         Path(os.environ.get("TEMP", "")),
         Path(r"C:\Windows\Temp"),
         Path.home() / "Desktop",
         Path.home() / "Downloads",
+        Path(r"C:\ProgramData\remcos"),
     ]
+    if os.environ.get("APPDATA"):
+        hotspots.append(Path(os.environ["APPDATA"]) / r"Microsoft\Windows\Temp")
+
     all_findings: List[ThreatFinding] = []
     total_scanned = 0
+    seen_targets: Set[str] = set()
     for hs in hotspots:
         if cancel_event and cancel_event.is_set():
             break
         if hs.is_dir():
             fs, cnt = scan_path_heuristics(hs, progress_cb=progress_cb, cancel_event=cancel_event, max_files=800)
+            for item in fs:
+                seen_targets.update(_norm_path_variants(item.target))
             all_findings.extend(fs)
             total_scanned += cnt
+
+    # Explicitly inspect any existing known malicious file paths outside walked hotspots
+    for item in load_threat_feed().get("malicious_file_paths") or []:
+        if cancel_event and cancel_event.is_set():
+            break
+        if not isinstance(item, dict) or not item.get("path"):
+            continue
+        candidate = Path(os.path.expandvars(str(item["path"])))
+        if candidate.is_file() and not (_norm_path_variants(candidate) & seen_targets):
+            total_scanned += 1
+            finding = analyze_single_file(candidate)
+            if finding:
+                seen_targets.update(_norm_path_variants(finding.target))
+                all_findings.append(finding)
+
     all_findings.sort(key=lambda f: f.severity.rank, reverse=True)
     return all_findings, total_scanned

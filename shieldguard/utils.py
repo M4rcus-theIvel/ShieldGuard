@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import ctypes
+import functools
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Tuple
@@ -12,6 +14,36 @@ from typing import Any, Dict, List, Optional, Tuple
 
 APP_DATA_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "ShieldGuard"
 CONFIG_FILE = APP_DATA_DIR / "config.json"
+
+
+@functools.lru_cache(maxsize=1)
+def load_threat_feed() -> Dict[str, Any]:
+    """Load the static embedded threat-intelligence feed JSON cleanly in source and frozen builds."""
+    candidates: List[Path] = [Path(__file__).resolve().parent / "threat_feed.json"]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / "shieldguard" / "threat_feed.json")
+
+    for candidate in candidates:
+        if candidate.is_file():
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+            except (OSError, json.JSONDecodeError):
+                return {}
+    return {}
+
+
+def compile_feed_regex(pattern: str, flags: int = 0, as_bytes: bool = False) -> Optional[re.Pattern[Any]]:
+    """Compile a threat feed regex pattern safely without crashing on malformed entries."""
+    if not pattern:
+        return None
+    try:
+        raw: Any = pattern.encode("latin-1") if as_bytes else pattern
+        return re.compile(raw, flags)
+    except (re.error, UnicodeEncodeError):
+        return None
 
 
 def ensure_app_dirs() -> Path:

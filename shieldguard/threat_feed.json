@@ -1,0 +1,412 @@
+{
+  "version": "2026.11.25",
+  "sha256_iocs": {
+    "2bc23b53bb76e59d84b0175e8cba68695a21ed74be9327f0b6ba37edc2daaeef": {
+      "name": "Lumma Stealer (PartyContinued.exe)",
+      "severity": "CRITICAL"
+    },
+    "b3e8b610efc0eef57332e50c29b54b0da5f497de1452d5e178009a0f354d7058": {
+      "name": "Lumma Stealer Side-Loaded DLL",
+      "severity": "CRITICAL"
+    },
+    "d8a5652052661b8278f792385c8bd48170a449d63672f5c78056a141194724b3": {
+      "name": "Lumma Stealer Payload",
+      "severity": "CRITICAL"
+    },
+    "8f32456359f209a63adfd24b94235e1727382ac7f7bb7f2bcaf754e721925b64": {
+      "name": "StealC v2 Infostealer",
+      "severity": "CRITICAL"
+    },
+    "097a87cfa4a5186aba3bba096866692951bde59c6f0c2e8c1c4a599246d14da8": {
+      "name": "Vidar Stealer Go Loader",
+      "severity": "CRITICAL"
+    },
+    "bb771ef229da7772ddb8f233e4e208ffc4edf6cbfca5452806e0a48222c712a5": {
+      "name": "AsyncRAT / XWorm Dropper (.vbe)",
+      "severity": "CRITICAL"
+    },
+    "94ca3beeb0dfd3f02fe14de2e6fb0d26e29beb426aee911422b08465afbd2faa": {
+      "name": "Remcos RAT Payload",
+      "severity": "CRITICAL"
+    }
+  },
+  "malicious_filenames": {
+    "asyncrat.exe": [
+      "Mã độc điều khiển từ xa AsyncRAT",
+      "CRITICAL"
+    ],
+    "xworm.exe": [
+      "Mã độc điều khiển từ xa XWorm RAT",
+      "CRITICAL"
+    ],
+    "remcos.exe": [
+      "Mã độc điều khiển từ xa Remcos RAT",
+      "CRITICAL"
+    ],
+    "lummac2.exe": [
+      "Mã độc đánh cắp dữ liệu Lumma Stealer",
+      "CRITICAL"
+    ]
+  },
+  "malicious_file_paths": [
+    {
+      "path": "%TEMP%\\MicrosoftUpdate.exe",
+      "reason": "Tệp giả mạo MicrosoftUpdate trong Temp (mẫu Vidar Stealer)",
+      "severity": "CRITICAL"
+    },
+    {
+      "path": "%APPDATA%\\Microsoft\\Windows\\Temp\\MicrosoftEdgeUpdate.exe",
+      "reason": "Tệp giả mạo EdgeUpdate trong Roaming AppData (Vidar/XMRig)",
+      "severity": "CRITICAL"
+    },
+    {
+      "path": "%APPDATA%\\Microsoft\\Windows\\Temp\\NisSrv.exe",
+      "reason": "Tệp giả mạo Defender NisSrv trong Roaming AppData (Vidar Loader)",
+      "severity": "CRITICAL"
+    },
+    {
+      "path": "C:\\ProgramData\\remcos\\logs.dat",
+      "reason": "Tệp nhật ký keylogger của mã độc Remcos RAT",
+      "severity": "CRITICAL"
+    },
+    {
+      "path": "%APPDATA%\\dasgbtisot.dat",
+      "reason": "Tệp dữ liệu keylogger của mã độc Remcos RAT",
+      "severity": "HIGH"
+    }
+  ],
+  "c2_ips": {
+    "203.202.232.91": {
+      "family": "XWorm RAT",
+      "severity": "CRITICAL"
+    },
+    "203.202.232.86": {
+      "family": "XWorm RAT",
+      "severity": "CRITICAL"
+    },
+    "203.202.232.148": {
+      "family": "XWorm RAT",
+      "severity": "CRITICAL"
+    },
+    "203.202.232.26": {
+      "family": "Remcos RAT",
+      "severity": "CRITICAL"
+    },
+    "203.202.232.212": {
+      "family": "Remcos RAT",
+      "severity": "CRITICAL"
+    },
+    "173.231.188.244": {
+      "family": "Remcos RAT",
+      "severity": "CRITICAL"
+    },
+    "192.227.219.79": {
+      "family": "Remcos RAT",
+      "severity": "CRITICAL"
+    },
+    "216.9.224.26": {
+      "family": "Remcos RAT",
+      "severity": "CRITICAL"
+    },
+    "206.123.152.51": {
+      "family": "Remcos RAT",
+      "severity": "CRITICAL"
+    },
+    "209.151.108.73": {
+      "family": "AsyncRAT",
+      "severity": "CRITICAL"
+    },
+    "107.175.246.27": {
+      "family": "AsyncRAT",
+      "severity": "CRITICAL"
+    },
+    "46.183.221.117": {
+      "family": "AsyncRAT",
+      "severity": "CRITICAL"
+    },
+    "207.189.11.101": {
+      "family": "AsyncRAT",
+      "severity": "CRITICAL"
+    },
+    "128.90.105.235": {
+      "family": "AsyncRAT",
+      "severity": "CRITICAL"
+    },
+    "185.81.157.242": {
+      "family": "AsyncRAT",
+      "severity": "CRITICAL"
+    },
+    "116.203.243.208": {
+      "family": "Vidar Stealer",
+      "severity": "CRITICAL"
+    },
+    "136.243.203.109": {
+      "family": "Vidar Stealer",
+      "severity": "CRITICAL"
+    },
+    "136.243.203.111": {
+      "family": "Vidar Stealer",
+      "severity": "CRITICAL"
+    },
+    "138.199.246.13": {
+      "family": "Vidar Stealer",
+      "severity": "CRITICAL"
+    },
+    "185.147.125.174": {
+      "family": "ClickFix / Lumma Stealer",
+      "severity": "CRITICAL"
+    }
+  },
+  "c2_ports": {
+    "2404": {
+      "family": "Remcos RAT",
+      "severity": "HIGH"
+    },
+    "6606": {
+      "family": "AsyncRAT",
+      "severity": "HIGH"
+    },
+    "6607": {
+      "family": "AsyncRAT",
+      "severity": "HIGH"
+    },
+    "7004": {
+      "family": "XWorm RAT",
+      "severity": "HIGH"
+    },
+    "7007": {
+      "family": "XWorm RAT",
+      "severity": "HIGH"
+    },
+    "7707": {
+      "family": "AsyncRAT",
+      "severity": "HIGH"
+    },
+    "8808": {
+      "family": "AsyncRAT",
+      "severity": "HIGH"
+    },
+    "14641": {
+      "family": "Remcos RAT",
+      "severity": "HIGH"
+    }
+  },
+  "script_signatures": [
+    {
+      "pattern": "mshta(\\.exe)?\\s+[\"']?https?://",
+      "reason": "Lệnh ClickFix gọi mshta tải mã độc trực tiếp từ Internet",
+      "severity": "CRITICAL"
+    },
+    {
+      "pattern": "((reCAPTCHA|Verification\\s*ID|I\\s*am\\s*not\\s*a\\s*robot).*(powershell|mshta|iex|invoke-expression)|(powershell|mshta|iex|invoke-expression).*(reCAPTCHA|Verification\\s*ID|I\\s*am\\s*not\\s*a\\s*robot))",
+      "reason": "Mã giả mạo xác thực CAPTCHA (ClickFix) lừa chạy lệnh độc hại",
+      "severity": "CRITICAL"
+    },
+    {
+      "pattern": "\\[Convert\\]::ToByte\\s*\\(.*\\|\\s*(iex|invoke-expression|powershell)",
+      "reason": "Script PowerShell giải mã chuỗi Hex chạy payload trong bộ nhớ (ClickFix/Lumma)",
+      "severity": "CRITICAL"
+    },
+    {
+      "pattern": "vssadmin(\\.exe)?\\s+delete\\s+shadows|wmic(\\.exe)?\\s+shadowcopy\\s+delete|wbadmin(\\.exe)?\\s+delete\\s+(catalog|systemstatebackup)|bcdedit(\\.exe)?\\s+/set\\s+(?:\\S+\\s+)?(recoveryenabled\\s+no|bootstatuspolicy\\s+ignoreallfailures)",
+      "reason": "Lệnh xóa bản sao lưu Volume Shadow Copy / tắt khôi phục Windows (dấu hiệu Ransomware)",
+      "severity": "CRITICAL"
+    },
+    {
+      "pattern": "certutil(\\.exe)?\\s+.*([-/]urlcache\\b.*[-/]f\\b|[-/]f\\b.*[-/]urlcache\\b).*https?://|bitsadmin(\\.exe)?\\s+/transfer\\b.*https?://|regsvr32(\\.exe)?\\s+.*([-/]s\\b.*[-/]u\\b|[-/]u\\b.*[-/]s\\b).*scrobj\\.dll",
+      "reason": "Lợi dụng công cụ hệ thống Windows (LOLBins) để tải/chạy mã độc từ xa",
+      "severity": "HIGH"
+    },
+    {
+      "pattern": "\\[System\\.Reflection\\.Assembly\\]::Load\\s*\\(.*(FromBase64String|DownloadData|\\bxor\\b)",
+      "reason": "Nạp trực tiếp mã thực thi .NET vào bộ nhớ để né tránh trình diệt virus (RAT/Stealer)",
+      "severity": "CRITICAL"
+    }
+  ],
+  "binary_signatures": [
+    {
+      "pattern": "AsyncMutex_|AsyncClient\\.Properties|XWormClient|XWorm\\s*v[0-9]",
+      "reason": "Chứa chuỗi định danh cấu hình của mã độc AsyncRAT / XWorm",
+      "severity": "CRITICAL"
+    },
+    {
+      "pattern": "\\|\u001e\u001e\u001f\\||Remcos_Mutex_|\\\\remcos\\\\logs\\.dat",
+      "reason": "Chứa khối cấu hình đặc trưng của mã độc điều khiển từ xa Remcos RAT",
+      "severity": "CRITICAL"
+    },
+    {
+      "pattern": "Restore-My-Files\\.txt|How To Restore Your Files\\.txt|XO1XADpO01|vssadmin(\\.exe)?\\s+delete\\s+shadows\\s+/all\\s+/quiet",
+      "reason": "Chứa dấu hiệu mã hóa tống tiền Ransomware (LockBit / Akira / RansomHub)",
+      "severity": "CRITICAL"
+    }
+  ],
+  "cmd_patterns": [
+    {
+      "pattern": "mshta(\\.exe)?\\s+[\"']?https?://",
+      "reason": "Lệnh ClickFix gọi mshta tải mã độc trực tiếp từ Internet",
+      "severity": "CRITICAL"
+    },
+    {
+      "pattern": "((reCAPTCHA|Verification\\s*ID|I\\s*am\\s*not\\s*a\\s*robot).*(powershell|mshta|iex|invoke-expression)|(powershell|mshta|iex|invoke-expression).*(reCAPTCHA|Verification\\s*ID|I\\s*am\\s*not\\s*a\\s*robot))",
+      "reason": "Mã giả mạo xác thực CAPTCHA (ClickFix) lừa chạy lệnh độc hại",
+      "severity": "CRITICAL"
+    },
+    {
+      "pattern": "\\[Convert\\]::ToByte\\s*\\(.*\\|\\s*(iex|invoke-expression|powershell)",
+      "reason": "PowerShell giải mã chuỗi Hex chạy payload trong bộ nhớ (ClickFix/Lumma)",
+      "severity": "CRITICAL"
+    },
+    {
+      "pattern": "vssadmin(\\.exe)?\\s+delete\\s+shadows|wmic(\\.exe)?\\s+shadowcopy\\s+delete|wbadmin(\\.exe)?\\s+delete\\s+(catalog|systemstatebackup)|bcdedit(\\.exe)?\\s+/set\\s+(?:\\S+\\s+)?(recoveryenabled\\s+no|bootstatuspolicy\\s+ignoreallfailures)",
+      "reason": "Xóa Volume Shadow Copy / tắt khôi phục Windows (dấu hiệu Ransomware)",
+      "severity": "CRITICAL"
+    },
+    {
+      "pattern": "dllhost(\\.exe)?\\s+/processid:\\{3e5fc7f9-9a51-4367-9063-a120244fbec7\\}",
+      "reason": "Kỹ thuật vượt quyền UAC qua COM Elevated (thường gặp ở LockBit / RAT)",
+      "severity": "CRITICAL"
+    },
+    {
+      "pattern": "certutil(\\.exe)?\\s+.*([-/]urlcache\\b.*[-/]f\\b|[-/]f\\b.*[-/]urlcache\\b).*https?://|bitsadmin(\\.exe)?\\s+/transfer\\b.*https?://|regsvr32(\\.exe)?\\s+.*([-/]s\\b.*[-/]u\\b|[-/]u\\b.*[-/]s\\b).*scrobj\\.dll",
+      "reason": "Lợi dụng công cụ hệ thống Windows (LOLBins) để tải/chạy mã độc từ xa",
+      "severity": "HIGH"
+    }
+  ],
+  "registry_keys": [
+    {
+      "hive": "HKCU",
+      "subkey": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "value_name": "XO1XADpO01",
+      "reason": "Khóa tự khởi động đặc trưng của mã độc LockBit Ransomware",
+      "severity": "CRITICAL"
+    },
+    {
+      "hive": "HKCU",
+      "subkey": "SOFTWARE\\LockBit",
+      "value_name": "",
+      "reason": "Nhánh Registry lưu cấu hình của LockBit Ransomware",
+      "severity": "CRITICAL"
+    },
+    {
+      "hive": "HKLM",
+      "subkey": "SOFTWARE\\LockBit",
+      "value_name": "",
+      "reason": "Nhánh Registry lưu cấu hình của LockBit Ransomware",
+      "severity": "CRITICAL"
+    },
+    {
+      "hive": "HKCU",
+      "subkey": "Software\\kmbgnrgsd-2X9W02",
+      "value_name": "",
+      "reason": "Nhánh Registry lưu cấu hình của mã độc Remcos RAT",
+      "severity": "HIGH"
+    }
+  ],
+  "knowledge_base": [
+    {
+      "pattern": "(lumma|stealc|vidar|clickfix|mshta|partycontinued|microsoftupdate\\.exe|nissrv\\.exe)",
+      "locales": {
+        "vi": {
+          "name": "Mã độc đánh cắp thông tin (Lumma / StealC / Vidar) & ClickFix",
+          "verdict": "NGUY HIỂM — Infostealer đánh cắp mật khẩu, cookie & ví tiền ảo",
+          "purpose": "Thường lây qua trang CAPTCHA giả (ClickFix) hoặc phần mềm crack, âm thầm đánh cắp mật khẩu trình duyệt, phiên đăng nhập và ví crypto.",
+          "recommendation": "Diệt tiến trình, xóa Task/Registry liên quan, cách ly tệp ngay và đổi toàn bộ mật khẩu quan trọng."
+        },
+        "en": {
+          "name": "Infostealer Malware (Lumma / StealC / Vidar) & ClickFix",
+          "verdict": "DANGEROUS — Credential, Cookie & Crypto-Wallet Stealer",
+          "purpose": "Commonly delivered via fake CAPTCHA (ClickFix) lures or cracked software to silently exfiltrate browser passwords, session cookies, and crypto wallets.",
+          "recommendation": "Terminate the process, remove persistence entries, quarantine the file immediately, and rotate compromised passwords."
+        },
+        "zh": {
+          "name": "信息窃取木马 (Lumma / StealC / Vidar) 与 ClickFix",
+          "verdict": "危险 — 窃取密码、Cookie 与加密货币钱包",
+          "purpose": "常通过虚假验证码页面 (ClickFix) 或破解软件传播，在后台窃取浏览器密码、会话 Cookie 与加密钱包。",
+          "recommendation": "立即结束进程、清除持久化启动项、隔离文件，并更换所有重要账号密码。"
+        },
+        "es": {
+          "name": "Malware Infostealer (Lumma / StealC / Vidar) y ClickFix",
+          "verdict": "PELIGROSO — Robo de contraseñas, cookies y carteras cripto",
+          "purpose": "Suele propagarse mediante CAPTCHA falsos (ClickFix) o software pirateado para robar credenciales, cookies y criptomonedas.",
+          "recommendation": "Finaliza el proceso, elimina la persistencia, pon el archivo en cuarentena y cambia tus contraseñas."
+        },
+        "de": {
+          "name": "Infostealer-Malware (Lumma / StealC / Vidar) & ClickFix",
+          "verdict": "GEFÄHRLICH — Diebstahl von Passwörtern, Cookies & Krypto-Wallets",
+          "purpose": "Wird oft über gefälschte CAPTCHAs (ClickFix) oder Cracks verbreitet, um Browser-Passwörter, Sitzungs-Cookies und Krypto-Wallets zu stehlen.",
+          "recommendation": "Prozess sofort beenden, Persistenz entfernen, Datei isolieren und betroffene Passwörter ändern."
+        }
+      }
+    },
+    {
+      "pattern": "(asyncrat|xworm|remcos|asyncmutex|dekont\\.pdf\\.vbe|dasgbtisot|kmbgnrgsd)",
+      "locales": {
+        "vi": {
+          "name": "Mã độc điều khiển từ xa RAT (AsyncRAT / XWorm / Remcos)",
+          "verdict": "NGUY HIỂM — Cửa hậu (Backdoor) chiếm quyền điều khiển máy",
+          "purpose": "Cho phép kẻ tấn công ghi lại thao tác bàn phím (keylogger), chụp màn hình, truyền tệp và thực thi lệnh từ xa trái phép.",
+          "recommendation": "Ngắt kết nối mạng, diệt tiến trình, xóa các khóa tự khởi động/Scheduled Task và cách ly tệp ngay lập tức."
+        },
+        "en": {
+          "name": "Remote Access Trojan (AsyncRAT / XWorm / Remcos)",
+          "verdict": "DANGEROUS — Backdoor & Remote Surveillance RAT",
+          "purpose": "Grants attackers remote desktop access, keylogging, webcam/screen capture, and arbitrary payload execution.",
+          "recommendation": "Isolate network access, kill the process, remove persistence keys/tasks, and quarantine the payload immediately."
+        },
+        "zh": {
+          "name": "远程控制木马 RAT (AsyncRAT / XWorm / Remcos)",
+          "verdict": "危险 — 远程控制后门与键盘记录木马",
+          "purpose": "允许攻击者远程控制电脑、记录键盘输入、截取屏幕并下发其他恶意载荷。",
+          "recommendation": "断开网络连接，立即结束进程、删除自启动项与计划任务并隔离文件。"
+        },
+        "es": {
+          "name": "Troyano de Acceso Remoto (AsyncRAT / XWorm / Remcos)",
+          "verdict": "PELIGROSO — Backdoor y control remoto no autorizado",
+          "purpose": "Permite al atacante controlar el equipo de forma remota, registrar pulsaciones de teclado y robar archivos.",
+          "recommendation": "Desconecta la red, finaliza el proceso, elimina la persistencia y pon el archivo en cuarentena."
+        },
+        "de": {
+          "name": "Remote-Access-Trojaner (AsyncRAT / XWorm / Remcos)",
+          "verdict": "GEFÄHRLICH — Backdoor- und Fernsteuerungs-Trojaner",
+          "purpose": "Ermöglicht Angreifern Fernzugriff auf den PC, Keylogging, Bildschirmüberwachung und das Nachladen weiterer Schadsoftware.",
+          "recommendation": "Netzwerk trennen, Prozess beenden, Autostart-Einträge löschen und die Datei sofort in Quarantäne verschieben."
+        }
+      }
+    },
+    {
+      "pattern": "(lockbit|akira|ransomhub|xo1xadpo01|restore-my-files|vssadmin|shadowcopy|wbadmin|recoveryenabled|3e5fc7f9-9a51-4367-9063-a120244fbec7)",
+      "locales": {
+        "vi": {
+          "name": "Mã độc tống tiền (Ransomware) / Phá hủy khôi phục Windows",
+          "verdict": "NGUY HIỂM TỘT ĐỘ — Nguy cơ mã hóa toàn bộ dữ liệu",
+          "purpose": "Xóa bản sao lưu Volume Shadow Copy, tắt khôi phục hệ thống hoặc chuẩn bị mã hóa tệp tin để đòi tiền chuộc (LockBit / Akira / RansomHub).",
+          "recommendation": "Diệt tiến trình và xóa tác vụ ngay lập tức; sao lưu dữ liệu quan trọng ra ổ đĩa rời trước khi khởi động lại."
+        },
+        "en": {
+          "name": "Ransomware / Windows Recovery Tampering (LockBit / Akira / RansomHub)",
+          "verdict": "CRITICAL DANGER — Active Ransomware or Shadow Copy Deletion",
+          "purpose": "Deletes Volume Shadow Copies, disables Windows recovery, or prepares to encrypt user files for extortion.",
+          "recommendation": "Terminate the process and remove persistence immediately; back up critical data offline."
+        },
+        "zh": {
+          "name": "勒索软件 / 破坏系统恢复 (LockBit / Akira / RansomHub)",
+          "verdict": "极度危险 — 勒索加密或删除卷影副本行为",
+          "purpose": "删除卷影副本 (Shadow Copies)、禁用系统恢复功能或准备加密磁盘文件进行勒索。",
+          "recommendation": "立即终止进程并清除启动项；将重要数据备份至离线存储。"
+        },
+        "es": {
+          "name": "Ransomware / Sabotaje de recuperación (LockBit / Akira / RansomHub)",
+          "verdict": "PELIGRO CRÍTICO — Riesgo inminente de cifrado de archivos",
+          "purpose": "Elimina copias de seguridad (Volume Shadow Copies), desactiva la recuperación de Windows o cifra archivos para pedir rescate.",
+          "recommendation": "Detén el proceso y elimina la persistencia de inmediato; respalda archivos críticos en un medio desconectado."
+        },
+        "de": {
+          "name": "Ransomware / Manipulation der Wiederherstellung (LockBit / Akira / RansomHub)",
+          "verdict": "KRITISCHE GEFAHR — Aktive Ransomware oder Löschen von Schattenkopien",
+          "purpose": "Löscht Volume Shadow Copies, deaktiviert die Windows-Wiederherstellung oder verschlüsselt Dateien zur Erpressung.",
+          "recommendation": "Prozess und Persistenz sofort stoppen bzw. entfernen und wichtige Daten extern sichern."
+        }
+      }
+    }
+  ]
+}

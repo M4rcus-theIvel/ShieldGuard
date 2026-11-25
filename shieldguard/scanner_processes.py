@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import subprocess
@@ -8,7 +9,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import psutil
 
 from .models import Severity, ThreatCategory, ThreatFinding
-from .utils import _hidden_startupinfo
+from .utils import _hidden_startupinfo, compile_feed_regex, compute_sha256, load_threat_feed
 
 KNOWN_MINER_NAMES: Set[str] = {
     "xmrig.exe",
@@ -137,11 +138,81 @@ def query_nvidia_gpu_status() -> Dict[str, Any]:
     return result
 
 
+def _is_public_ip(ip_str: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
+    return not (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_multicast
+        or addr.is_unspecified
+        or addr.is_reserved
+    )
+
+
+def _is_trusted_install_dir(exe: str) -> bool:
+    norm = exe.replace("/", "\\").lower()
+    return norm.startswith(
+        (
+            "c:\\windows\\system32\\",
+            "c:\\windows\\syswow64\\",
+            "c:\\program files\\",
+            "c:\\program files (x86)\\",
+        )
+    )
+
+
+def _parse_proc_severity(val: str, default: Severity = Severity.HIGH) -> Severity:
+    try:
+        return Severity(str(val).upper())
+    except ValueError:
+        return default
+
+
 def scan_processes() -> Tuple[List[ThreatFinding], Dict[str, Any]]:
-    """Scan all running processes for crypto-miners, stealth watchdogs, and suspicious network connections."""
+    """Scan all running processes for crypto-miners, stealth watchdogs, C2 connections, and threat-feed IOCs."""
     findings: List[ThreatFinding] = []
     seen_pids: Set[int] = set()
     my_pid = os.getpid()
+
+    feed = load_threat_feed()
+    sha256_iocs: Dict[str, Tuple[str, Severity]] = {
+        str(k).lower(): (
+            str(v.get("name") or "Known Malware"),
+            _parse_proc_severity(str(v.get("severity", "CRITICAL")), Severity.CRITICAL),
+        )
+        for k, v in (feed.get("sha256_iocs") or {}).items()
+        if isinstance(v, dict) and k
+    }
+    c2_ips: Dict[str, Tuple[str, Severity]] = {
+        str(k): (
+            str(v.get("family") or "Malware C2"),
+            _parse_proc_severity(str(v.get("severity", "CRITICAL")), Severity.CRITICAL),
+        )
+        for k, v in (feed.get("c2_ips") or {}).items()
+        if isinstance(v, dict) and k
+    }
+    c2_ports: Dict[int, Tuple[str, Severity]] = {}
+    for k, v in (feed.get("c2_ports") or {}).items():
+        if isinstance(v, dict) and str(k).isdigit():
+            c2_ports[int(k)] = (
+                str(v.get("family") or "Suspicious RAT"),
+                _parse_proc_severity(str(v.get("severity", "HIGH")), Severity.HIGH),
+            )
+    feed_cmd_patterns: List[Tuple[re.Pattern[str], str, Severity]] = []
+    for item in feed.get("cmd_patterns") or []:
+        if not isinstance(item, dict):
+            continue
+        pat = compile_feed_regex(str(item.get("pattern", "")), re.I | re.S)
+        if pat:
+            feed_cmd_patterns.append((pat, str(item.get("reason", "")), _parse_proc_severity(str(item.get("severity", "HIGH")))))
+
+    exe_sha_cache: Dict[str, str] = {}
 
     gpu_info = query_nvidia_gpu_status()
     gpu_compute_pids: Dict[int, Dict[str, Any]] = {p["pid"]: p for p in gpu_info.get("processes", [])}
@@ -170,6 +241,10 @@ def scan_processes() -> Tuple[List[ThreatFinding], Dict[str, Any]]:
             cmdline_list = info.get("cmdline") or []
             cmdline = " ".join(cmdline_list) if isinstance(cmdline_list, list) else str(cmdline_list)
 
+            is_suspicious_dir = bool(exe and SUSPICIOUS_PATH_REGEX.search(exe))
+            is_safe_hint = any(h in name_lower for h in SAFE_PROCESS_HINTS) and not is_suspicious_dir
+            in_trusted_dir = bool(exe and _is_trusted_install_dir(exe))
+
             reasons: List[str] = []
             severity = Severity.INFO
 
@@ -179,30 +254,54 @@ def scan_processes() -> Tuple[List[ThreatFinding], Dict[str, Any]]:
                     reasons.append(f"Tên tiến trình trùng phần mềm đào coin ({name})")
                     severity = Severity.CRITICAL
 
-            # 2. Suspicious command line patterns
-            for pat, desc, pat_sev in SUSPICIOUS_CMD_PATTERNS:
+            # 2. Suspicious command line patterns (built-in + threat feed)
+            for pat, desc, pat_sev in SUSPICIOUS_CMD_PATTERNS + feed_cmd_patterns:
                 if pat.search(cmdline) or pat.search(exe):
-                    reasons.append(desc)
+                    if desc not in reasons:
+                        reasons.append(desc)
                     if pat_sev.rank > severity.rank:
                         severity = pat_sev
 
             # 3. Running from suspicious directories (especially python/exe/cmd in C:\Windows\SystemHealth or Temp)
-            if exe and SUSPICIOUS_PATH_REGEX.search(exe):
-                if not any(h in name_lower for h in SAFE_PROCESS_HINTS):
-                    reasons.append(f"Chạy từ thư mục nguy hiểm: {exe}")
-                    if Severity.HIGH.rank > severity.rank:
-                        severity = Severity.HIGH
+            if is_suspicious_dir and not is_safe_hint:
+                reasons.append(f"Chạy từ thư mục nguy hiểm: {exe}")
+                if Severity.HIGH.rank > severity.rank:
+                    severity = Severity.HIGH
 
-            # 4. Active connection to common mining pool ports
+            # 3b. SHA-256 IOC check for executables outside trusted OS/Program Files dirs
+            if exe and sha256_iocs and not is_safe_hint and not in_trusted_dir:
+                exe_key = exe.lower()
+                if exe_key not in exe_sha_cache:
+                    exe_sha_cache[exe_key] = compute_sha256(exe, max_bytes=50 * 1024 * 1024)
+                exe_sha = exe_sha_cache[exe_key]
+                if exe_sha and exe_sha.lower() in sha256_iocs:
+                    ioc_name, ioc_sev = sha256_iocs[exe_sha.lower()]
+                    reasons.append(f"Khớp mã băm SHA-256 mã độc đã biết: {ioc_name}")
+                    if ioc_sev.rank > severity.rank:
+                        severity = ioc_sev
+
+            # 4. Active connection to mining pools, known C2 IPs, or suspicious RAT C2 ports
             remote_conns = conn_by_pid.get(pid, [])
             for rip, rport in remote_conns:
-                if rport in MINING_POOL_PORTS and not rip.startswith(("127.", "10.", "192.168.")):
+                if not _is_public_ip(rip):
+                    continue
+                if rport in MINING_POOL_PORTS:
                     reasons.append(f"Kết nối mạng tới cổng đào coin phổ biến ({rip}:{rport})")
                     if Severity.CRITICAL.rank > severity.rank:
                         severity = Severity.CRITICAL
+                if rip in c2_ips:
+                    family, c2_sev = c2_ips[rip]
+                    reasons.append(f"Kết nối mạng tới máy chủ điều khiển mã độc C2 ({rip}:{rport} — {family})")
+                    if c2_sev.rank > severity.rank:
+                        severity = c2_sev
+                elif rport in c2_ports and not is_safe_hint and not in_trusted_dir:
+                    family, port_sev = c2_ports[rport]
+                    reasons.append(f"Kết nối mạng tới cổng điều khiển RAT nghi ngờ ({rip}:{rport} — {family})")
+                    if port_sev.rank > severity.rank:
+                        severity = port_sev
 
             # 5. GPU compute process that is not on safe list and lives in suspicious path
-            if pid in gpu_compute_pids and not any(h in name_lower for h in SAFE_PROCESS_HINTS):
+            if pid in gpu_compute_pids and not is_safe_hint:
                 gmem = gpu_compute_pids[pid]["mem_mb"]
                 if gmem >= 512 and (not exe or "program files" not in exe.lower()):
                     reasons.append(f"Đang chiếm dụng GPU Compute ({gmem} MB VRAM) từ vị trí bất thường")

@@ -9,6 +9,7 @@ import requests
 
 from .i18n import get_lang, t
 from .models import ThreatFinding
+from .utils import compile_feed_regex, load_threat_feed
 
 # Multilingual built-in knowledge base (vi, en, zh, es, de)
 KNOWN_PATTERNS: List[Tuple[re.Pattern[str], Dict[str, Dict[str, str]]]] = [
@@ -247,11 +248,31 @@ def extract_lookup_subject(finding: ThreatFinding) -> str:
     return cleaned or finding.display_title
 
 
+_KB_FEED_CACHE: Tuple[Any, List[Tuple[re.Pattern[str], Dict[str, Dict[str, str]]]]] = (None, [])
+
+
+def _get_feed_knowledge_patterns() -> List[Tuple[re.Pattern[str], Dict[str, Dict[str, str]]]]:
+    global _KB_FEED_CACHE
+    feed = load_threat_feed()
+    if _KB_FEED_CACHE[0] is feed:
+        return _KB_FEED_CACHE[1]
+    out: List[Tuple[re.Pattern[str], Dict[str, Dict[str, str]]]] = []
+    for entry in feed.get("knowledge_base") or []:
+        if not isinstance(entry, dict):
+            continue
+        pat = compile_feed_regex(str(entry.get("pattern", "")), re.I)
+        locales = entry.get("locales")
+        if pat and isinstance(locales, dict):
+            out.append((pat, locales))
+    _KB_FEED_CACHE = (feed, out)
+    return out
+
+
 def lookup_local_knowledge(finding: ThreatFinding) -> Optional[Dict[str, str]]:
-    """Match against built-in local knowledge base in the active UI language."""
-    haystack = f"{finding.title} {finding.target} {finding.reason} {finding.details}"
+    """Match against built-in local knowledge base and threat feed in the active UI language."""
+    haystack = f"{finding.display_title} {finding.target} {finding.display_reason} {finding.details}"
     lang = get_lang()
-    for pattern, localized in KNOWN_PATTERNS:
+    for pattern, localized in KNOWN_PATTERNS + _get_feed_knowledge_patterns():
         if pattern.search(haystack):
             return localized.get(lang) or localized.get("en") or localized.get("vi")
     return None

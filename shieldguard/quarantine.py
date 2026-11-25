@@ -240,9 +240,50 @@ def remediate_finding(finding: ThreatFinding) -> Tuple[bool, str]:
         return False, msg
 
     if cat == ThreatCategory.REGISTRY:
-        hive_name = d.get("hive", "HKCU")
-        subkey = d.get("subkey", "")
-        val_name = d.get("value_name", "")
+        hive_name = str(d.get("hive", "HKCU")).upper()
+        subkey = str(d.get("subkey", ""))
+        val_name = str(d.get("value_name", ""))
+        if hive_name not in ("HKCU", "HKLM"):
+            return False, f"Hive Registry không hợp lệ: {hive_name}"
+
+        if d.get("delete_key") is True:
+            clean_subkey = subkey.strip("\\/")
+            segments = [s for s in clean_subkey.split("\\") if s]
+            lower_key = clean_subkey.lower()
+            protected_roots = {"software", "system", "microsoft", "windows"}
+            protected_suffixes = (
+                "\\run",
+                "\\runonce",
+                "\\winlogon",
+                "\\currentversion",
+                "\\microsoft",
+                "\\windows",
+                "\\explorer",
+                "\\policies",
+                "\\services",
+            )
+            if len(segments) < 2 or lower_key in protected_roots or lower_key.endswith(protected_suffixes):
+                msg = f"Từ chối xóa nhánh Registry được bảo vệ: {hive_name}\\{clean_subkey}"
+                record_history("Clean Registry", finding.target, False, msg)
+                return False, msg
+
+            p = subprocess.run(
+                ["reg.exe", "delete", f"{hive_name}\\{clean_subkey}", "/f"],
+                capture_output=True,
+                text=True,
+                startupinfo=_hidden_startupinfo(),
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if p.returncode == 0:
+                finding.remediated = True
+                msg = f"Đã xóa nhánh Registry mã độc: {hive_name}\\{clean_subkey}"
+                record_history("Clean Registry", finding.target, True, msg)
+                return True, msg
+            err_txt = (p.stderr or p.stdout or "").strip()
+            msg = f"Không thể xóa nhánh Registry '{hive_name}\\{clean_subkey}': {err_txt}"
+            record_history("Clean Registry", finding.target, False, msg)
+            return False, msg
+
         hive = winreg.HKEY_CURRENT_USER if hive_name == "HKCU" else winreg.HKEY_LOCAL_MACHINE
         try:
             with winreg.OpenKey(hive, subkey, 0, winreg.KEY_SET_VALUE) as key:
