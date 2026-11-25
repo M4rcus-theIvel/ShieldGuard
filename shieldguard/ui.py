@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 import threading
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable, Dict, List, Optional
 import webbrowser
 
@@ -548,14 +548,51 @@ class ShieldGuardApp(ctk.CTk):
         val_lbl.pack(padx=14, pady=(0, 12), anchor="w")
         return val_lbl
 
+    def _setup_treeview_style(self) -> None:
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+        style.configure(
+            "Shield.Treeview",
+            background=BG_ROW,
+            foreground="#e2e8f0",
+            fieldbackground=BG_ROW,
+            borderwidth=0,
+            rowheight=36,
+            font=("Segoe UI", 10),
+        )
+        style.configure(
+            "Shield.Treeview.Heading",
+            background="#1e293b",
+            foreground="#f8fafc",
+            borderwidth=0,
+            relief="flat",
+            font=("Segoe UI", 10, "bold"),
+            padding=(8, 8),
+        )
+        style.map(
+            "Shield.Treeview",
+            background=[("selected", "#2563eb")],
+            foreground=[("selected", "#ffffff")],
+        )
+        style.map(
+            "Shield.Treeview.Heading",
+            background=[("active", "#334155")],
+        )
+
     def _render_findings_list(
         self,
-        container: ctk.CTkScrollableFrame,
+        container: ctk.CTkFrame,
         findings: List[ThreatFinding],
         on_after_remediate: Optional[Callable[[], None]] = None,
     ) -> None:
         for w in container.winfo_children():
             w.destroy()
+
+        container.grid_columnconfigure(0, weight=1)
+        container.grid_rowconfigure(1, weight=1)
 
         if not findings:
             ctk.CTkLabel(
@@ -563,174 +600,187 @@ class ShieldGuardApp(ctk.CTk):
                 text=t("no_threats"),
                 font=ctk.CTkFont(size=14),
                 text_color="#4ade80",
-            ).pack(pady=36)
+            ).grid(row=0, column=0, pady=40)
             return
 
-        # Multi-select batch toolbar at the top of the list
-        active_findings = [f for f in findings if not f.remediated]
-        check_vars: Dict[str, ctk.BooleanVar] = {}
+        self._setup_treeview_style()
 
-        if active_findings:
-            toolbar = ctk.CTkFrame(container, fg_color="#1e293b", corner_radius=0)
-            toolbar.pack(fill="x", padx=2, pady=(0, 2))
+        by_id: Dict[str, ThreatFinding] = {f.id: f for f in findings}
+        checked_ids: set[str] = set()
 
-            btn_fix_sel = ctk.CTkButton(
-                toolbar,
-                text=t("btn_fix_selected", n=0),
-                height=30,
-                width=165,
-                corner_radius=4,
-                fg_color=DANGER,
-                hover_color=DANGER_HOVER,
-                state="disabled",
-                font=ctk.CTkFont(size=12, weight="bold"),
+        # Top action toolbar
+        toolbar = ctk.CTkFrame(container, fg_color="#1e293b", corner_radius=0)
+        toolbar.grid(row=0, column=0, sticky="ew", padx=2, pady=(2, 0))
+
+        btn_fix_sel = ctk.CTkButton(
+            toolbar,
+            text=t("btn_fix_selected", n=0),
+            height=32,
+            width=165,
+            corner_radius=6,
+            fg_color=DANGER,
+            hover_color=DANGER_HOVER,
+            state="disabled",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        btn_fix_sel.pack(side="right", padx=(6, 10), pady=8)
+
+        btn_details = ctk.CTkButton(
+            toolbar,
+            text=t("btn_details"),
+            height=32,
+            width=155,
+            corner_radius=6,
+            fg_color="#6d28d9",
+            hover_color="#5b21b6",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        btn_details.pack(side="right", padx=4, pady=8)
+
+        # Native ttk.Treeview (single HWND -> zero scroll ghosting / layer stacking on Windows!)
+        tree_wrap = ctk.CTkFrame(container, fg_color=BG_ROW, corner_radius=0)
+        tree_wrap.grid(row=1, column=0, sticky="nsew", padx=2, pady=(1, 2))
+        tree_wrap.grid_columnconfigure(0, weight=1)
+        tree_wrap.grid_rowconfigure(0, weight=1)
+
+        cols = ("chk", "sev", "cat", "target", "reason")
+        tree = ttk.Treeview(
+            tree_wrap,
+            columns=cols,
+            show="headings",
+            style="Shield.Treeview",
+            selectmode="browse",
+        )
+        tree.heading("chk", text="☐", anchor="center")
+        tree.heading("sev", text=t("rpt_severity"), anchor="center")
+        tree.heading("cat", text=t("rpt_category"), anchor="w")
+        tree.heading("target", text=t("lbl_target"), anchor="w")
+        tree.heading("reason", text=t("lbl_reason"), anchor="w")
+
+        tree.column("chk", width=44, minwidth=44, stretch=False, anchor="center")
+        tree.column("sev", width=110, minwidth=95, stretch=False, anchor="center")
+        tree.column("cat", width=140, minwidth=110, stretch=False, anchor="w")
+        tree.column("target", width=310, minwidth=180, stretch=True, anchor="w")
+        tree.column("reason", width=320, minwidth=180, stretch=True, anchor="w")
+
+        tree.tag_configure("CRITICAL", foreground="#f87171")
+        tree.tag_configure("HIGH", foreground="#fb923c")
+        tree.tag_configure("MEDIUM", foreground="#facc15")
+        tree.tag_configure("LOW", foreground="#60a5fa")
+        tree.tag_configure("INFO", foreground="#cbd5e1")
+        tree.tag_configure("DONE", foreground="#4ade80")
+
+        yscroll = ctk.CTkScrollbar(tree_wrap, orientation="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=yscroll.set)
+        tree.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+
+        for f in findings:
+            chk_icon = "✓" if f.remediated else "☐"
+            sev_txt = f"✓ {t('act_done')}" if f.remediated else f.severity.label_vi.upper()
+            tag = "DONE" if f.remediated else f.severity.value
+            tree.insert(
+                "",
+                "end",
+                iid=f.id,
+                values=(chk_icon, sev_txt, f.category.label_vi, f.target, f.display_reason),
+                tags=(tag,),
             )
-            btn_fix_sel.pack(side="right", padx=(6, 10), pady=6)
 
-            def _sync_sel_btn() -> None:
-                cnt = sum(1 for v in check_vars.values() if v.get())
-                btn_fix_sel.configure(
-                    text=t("btn_fix_selected", n=cnt),
-                    state="normal" if cnt > 0 else "disabled",
-                )
+        def _sync_btn() -> None:
+            cnt = len(checked_ids)
+            btn_fix_sel.configure(
+                text=t("btn_fix_selected", n=cnt),
+                state="normal" if cnt > 0 else "disabled",
+            )
 
-            def _set_all(val: bool) -> None:
-                for v in check_vars.values():
-                    v.set(val)
-                _sync_sel_btn()
+        def _toggle_row(iid: str) -> None:
+            f = by_id.get(iid)
+            if not f or f.remediated:
+                return
+            if iid in checked_ids:
+                checked_ids.remove(iid)
+                tree.set(iid, "chk", "☐")
+            else:
+                checked_ids.add(iid)
+                tree.set(iid, "chk", "☑")
+            _sync_btn()
 
-            def _fix_selected() -> None:
-                chosen = [f for f in active_findings if check_vars.get(f.id) and check_vars[f.id].get()]
-                if not chosen:
+        def _on_click(event: Any) -> None:
+            region = tree.identify("region", event.x, event.y)
+            if region != "cell":
+                return
+            col = tree.identify_column(event.x)
+            iid = tree.identify_row(event.y)
+            if iid and col == "#1":
+                _toggle_row(iid)
+
+        def _open_selected_detail(_event: Any = None) -> None:
+            sel = tree.selection()
+            if not sel:
+                # Default to first row if user clicks Details before highlighting
+                children = tree.get_children()
+                if not children:
                     return
-                self._remediate_batch(chosen, after_cb=on_after_remediate)
+                iid = children[0]
+            else:
+                iid = sel[0]
+            f = by_id.get(iid)
+            if f:
+                FindingDetailDialog(self, f)
 
-            btn_fix_sel.configure(command=_fix_selected)
+        def _on_space(_event: Any) -> None:
+            sel = tree.selection()
+            if sel:
+                _toggle_row(sel[0])
 
-            ctk.CTkButton(
-                toolbar,
-                text=t("btn_select_all"),
-                height=30,
-                width=125,
-                corner_radius=4,
-                fg_color="#334155",
-                hover_color="#475569",
-                font=ctk.CTkFont(size=12, weight="bold"),
-                command=lambda: _set_all(True),
-            ).pack(side="left", padx=(10, 6), pady=6)
+        def _set_all(val: bool) -> None:
+            checked_ids.clear()
+            for f in findings:
+                if f.remediated:
+                    continue
+                if val:
+                    checked_ids.add(f.id)
+                    tree.set(f.id, "chk", "☑")
+                else:
+                    tree.set(f.id, "chk", "☐")
+            _sync_btn()
 
-            ctk.CTkButton(
-                toolbar,
-                text=t("btn_deselect_all"),
-                height=30,
-                width=105,
-                corner_radius=4,
-                fg_color="#334155",
-                hover_color="#475569",
-                font=ctk.CTkFont(size=12),
-                command=lambda: _set_all(False),
-            ).pack(side="left", padx=0, pady=6)
+        def _fix_selected() -> None:
+            chosen = [by_id[i] for i in checked_ids if i in by_id and not by_id[i].remediated]
+            if not chosen:
+                return
+            self._remediate_batch(chosen, after_cb=on_after_remediate)
 
-            ctk.CTkFrame(container, height=1, corner_radius=0, fg_color="#334155").pack(fill="x", padx=2)
-        else:
-            def _sync_sel_btn() -> None:
-                pass
+        tree.bind("<Button-1>", _on_click)
+        tree.bind("<Double-1>", _open_selected_detail)
+        tree.bind("<space>", _on_space)
+        btn_details.configure(command=_open_selected_detail)
+        btn_fix_sel.configure(command=_fix_selected)
 
-        for idx, f in enumerate(findings):
-            row_bg = BG_ROW if idx % 2 == 0 else "#1a253a"
-            row = ctk.CTkFrame(container, fg_color=row_bg, corner_radius=0, border_width=0)
-            row.pack(fill="x", padx=2, pady=0)
-            row.grid_columnconfigure(2, weight=1)
+        ctk.CTkButton(
+            toolbar,
+            text=t("btn_select_all"),
+            height=32,
+            width=125,
+            corner_radius=6,
+            fg_color="#334155",
+            hover_color="#475569",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=lambda: _set_all(True),
+        ).pack(side="left", padx=(10, 6), pady=8)
 
-            var = ctk.BooleanVar(value=False)
-            if not f.remediated:
-                check_vars[f.id] = var
-            cb = ctk.CTkCheckBox(
-                row,
-                text="",
-                variable=var,
-                width=24,
-                checkbox_width=20,
-                checkbox_height=20,
-                state="disabled" if f.remediated else "normal",
-                command=_sync_sel_btn,
-            )
-            cb.grid(row=0, column=0, rowspan=2, padx=(10, 4), pady=12, sticky="n")
-
-            ctk.CTkLabel(
-                row,
-                text=f.severity.label_vi.upper(),
-                width=94,
-                corner_radius=4,
-                fg_color=f.severity.color,
-                text_color="#ffffff",
-                font=ctk.CTkFont(size=11, weight="bold"),
-                pady=4,
-            ).grid(row=0, column=1, rowspan=2, padx=(4, 10), pady=12, sticky="n")
-
-            title_text = f"[{f.category.label_vi}] {f.display_title}"
-            if f.remediated:
-                title_text = t("remediated_prefix") + title_text
-            ctk.CTkLabel(
-                row,
-                text=title_text,
-                font=ctk.CTkFont(size=13, weight="bold"),
-                text_color="#4ade80" if f.remediated else "#f8fafc",
-                anchor="w",
-                justify="left",
-                wraplength=490,
-            ).grid(row=0, column=2, padx=4, pady=(10, 2), sticky="ew")
-
-            reason_str = f.display_reason
-            target_preview = f.target if len(f.target) <= 130 else f.target[:127] + "..."
-            reason_preview = reason_str if len(reason_str) <= 190 else reason_str[:187] + "..."
-            detail_text = f"{t('lbl_target')}: {target_preview}\n{t('lbl_reason')}: {reason_preview}"
-            ctk.CTkLabel(
-                row,
-                text=detail_text,
-                font=ctk.CTkFont(size=12),
-                text_color=TEXT_MUTED,
-                anchor="w",
-                justify="left",
-                wraplength=490,
-            ).grid(row=1, column=2, padx=4, pady=(0, 10), sticky="ew")
-
-            btn_col = ctk.CTkFrame(row, fg_color="transparent", corner_radius=0)
-            btn_col.grid(row=0, column=3, rowspan=2, padx=(6, 12), pady=10, sticky="e")
-
-            ctk.CTkButton(
-                btn_col,
-                text=t("btn_details"),
-                width=140,
-                height=30,
-                corner_radius=4,
-                fg_color="#334155",
-                hover_color="#475569",
-                font=ctk.CTkFont(size=12, weight="bold"),
-                command=lambda finding=f: FindingDetailDialog(self, finding),
-            ).pack(pady=(0, 6))
-
-            action_label = self._remediate_button_label(f.category)
-            ctk.CTkButton(
-                btn_col,
-                text=t("act_done") if f.remediated else action_label,
-                width=140,
-                height=30,
-                corner_radius=4,
-                state="disabled" if f.remediated else "normal",
-                fg_color="#334155" if f.remediated else DANGER,
-                hover_color=DANGER_HOVER,
-                font=ctk.CTkFont(size=12, weight="bold"),
-                command=lambda finding=f, cb=on_after_remediate: self._handle_remediate_one(finding, cb),
-            ).pack()
-
-            ctk.CTkFrame(container, height=1, corner_radius=0, fg_color="#263248").pack(fill="x", padx=2, pady=0)
-
-        try:
-            container._parent_canvas.yview_moveto(0)
-            container.update_idletasks()
-        except Exception:
-            pass
+        ctk.CTkButton(
+            toolbar,
+            text=t("btn_deselect_all"),
+            height=32,
+            width=105,
+            corner_radius=6,
+            fg_color="#334155",
+            hover_color="#475569",
+            font=ctk.CTkFont(size=12),
+            command=lambda: _set_all(False),
+        ).pack(side="left", padx=0, pady=8)
 
     @staticmethod
     def _remediate_button_label(cat: ThreatCategory) -> str:
@@ -832,14 +882,15 @@ class ShieldGuardApp(ctk.CTk):
         self.dash_progress.set(0)
         self.dash_progress.pack(padx=14, pady=(0, 10), fill="x")
 
-        self.dash_list = ctk.CTkScrollableFrame(page, fg_color=BG_CARD, corner_radius=12)
+        self.dash_list = ctk.CTkFrame(page, fg_color=BG_CARD, corner_radius=8)
         self.dash_list.grid(row=3, column=0, padx=24, pady=(4, 20), sticky="nsew")
+        self.dash_list.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
             self.dash_list,
             text=t("dash_empty"),
             font=ctk.CTkFont(size=13),
             text_color=TEXT_MUTED,
-        ).pack(pady=40)
+        ).grid(row=0, column=0, pady=40)
 
     def _refresh_gpu_badge_async(self) -> None:
         def _job() -> None:
@@ -1015,7 +1066,7 @@ class ShieldGuardApp(ctk.CTk):
         )
         self.lbl_proc_info.grid(row=1, column=0, padx=24, pady=(0, 8), sticky="ew")
 
-        self.proc_list = ctk.CTkScrollableFrame(page, fg_color=BG_CARD, corner_radius=12)
+        self.proc_list = ctk.CTkFrame(page, fg_color=BG_CARD, corner_radius=8)
         self.proc_list.grid(row=2, column=0, padx=24, pady=(4, 20), sticky="nsew")
 
     def _run_proc_scan(self) -> None:
@@ -1059,7 +1110,7 @@ class ShieldGuardApp(ctk.CTk):
         )
         self.lbl_persist_info.grid(row=1, column=0, padx=24, pady=(0, 8), sticky="ew")
 
-        self.persist_list = ctk.CTkScrollableFrame(page, fg_color=BG_CARD, corner_radius=12)
+        self.persist_list = ctk.CTkFrame(page, fg_color=BG_CARD, corner_radius=8)
         self.persist_list.grid(row=2, column=0, padx=24, pady=(4, 20), sticky="nsew")
 
     def _run_persist_scan(self) -> None:
@@ -1105,7 +1156,7 @@ class ShieldGuardApp(ctk.CTk):
         )
         self.lbl_def_status.grid(row=1, column=0, padx=24, pady=(0, 8), sticky="ew")
 
-        self.defender_list = ctk.CTkScrollableFrame(page, fg_color=BG_CARD, corner_radius=12)
+        self.defender_list = ctk.CTkFrame(page, fg_color=BG_CARD, corner_radius=8)
         self.defender_list.grid(row=2, column=0, padx=24, pady=(4, 20), sticky="nsew")
 
     def _run_defender_scan(self) -> None:
@@ -1194,7 +1245,7 @@ class ShieldGuardApp(ctk.CTk):
         )
         self.lbl_file_status.grid(row=2, column=0, padx=24, pady=(4, 4), sticky="ew")
 
-        self.file_list = ctk.CTkScrollableFrame(page, fg_color=BG_CARD, corner_radius=12)
+        self.file_list = ctk.CTkFrame(page, fg_color=BG_CARD, corner_radius=8)
         self.file_list.grid(row=3, column=0, padx=24, pady=(4, 20), sticky="nsew")
 
     def _pick_file(self) -> None:
