@@ -31,7 +31,7 @@ jobs:
 
       - name: Build ShieldGuard.exe (with UAC Admin manifest)
         run: |
-          pyinstaller --noconfirm --onefile --windowed --uac-admin --name ShieldGuard --collect-all customtkinter main.py
+          pyinstaller --noconfirm --onefile --windowed --uac-admin --name ShieldGuard --collect-all customtkinter --add-data "shieldguard/threat_feed.json;shieldguard" main.py
 
       - name: Generate SHA-256 checksum
         shell: pwsh
